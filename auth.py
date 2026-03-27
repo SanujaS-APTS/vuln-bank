@@ -148,13 +148,25 @@ def init_auth_routes(app):
     @app.route('/api/check_balance', methods=['GET'])
     @token_required
     def api_check_balance(current_user):
-        # Vulnerability: No additional authorization check
-        # Any valid token can check any account balance
         account_number = request.args.get('account_number')
-        
+
         conn = sqlite3.connect('bank.db')
         c = conn.cursor()
-        c.execute(f"SELECT username, balance FROM users WHERE account_number='{account_number}'")
+
+        # Authorization check: verify the user owns this account or is an admin
+        c.execute("SELECT account_number FROM users WHERE id = ?", (current_user['user_id'],))
+        user_account = c.fetchone()
+
+        if not user_account:
+            conn.close()
+            return jsonify({'error': 'User not found'}), 404
+
+        # Only allow access to own account, unless user is admin
+        if user_account[0] != account_number and not current_user.get('is_admin'):
+            conn.close()
+            return jsonify({'error': 'Unauthorized to view this account'}), 403
+
+        c.execute("SELECT username, balance FROM users WHERE account_number = ?", (account_number,))
         user = c.fetchone()
         conn.close()
         
